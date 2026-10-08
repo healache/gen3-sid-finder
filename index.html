@@ -1,0 +1,328 @@
+<!doctype html>
+<!--
+SPDX-FileCopyrightText: © 2026 healache <healache@posteo.org>
+SPDX-FileCopyrightText: © 2026 sakura151 <sakurakazama151@yahoo.com>
+SPDX-License-Identifier: BSD-3-Clause
+-->
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; base-uri 'none'; form-action 'none'; script-src 'sha256-L7e6vZswd/d9ku/XwPmzP4JJho9sUCyGgVieESh1oj8='; style-src 'sha256-mV8zr3aGHAZF1k9EIVmrCJKUB/hQNzNFy0Ef/6ptfNk=' 'sha256-NfGBxXf1V/rchqnLvu8rR1ULw5OIMs+q6n0mNQcUICo=';">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="referrer" content="no-referrer">
+<meta name="description" content="Find possible SIDs for Generation III Pokémon games on Nintendo Switch using a TID and G7TID.">
+<title>Gen 3 SID Finder</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --muted: #666;
+    --error: #b00020;
+    --anchor: #ccc;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --muted: #999;
+      --error: #ff8080;
+      --anchor: #555;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    max-width: 40rem;
+    margin: 2rem auto;
+    padding: 0 1rem;
+    font: 16px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  h1 { font-size: 1.25rem; }
+  h2 { font-size: 1rem; }
+
+  form {
+    display: grid;
+    gap: 1rem;
+    margin-top: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  label { display: block; }
+
+  label input {
+    display: block;
+    width: 100%;
+    margin-top: .35rem;
+    font: inherit;
+  }
+
+  button { font: inherit; }
+
+  [role="alert"] {
+    margin: 0;
+    color: var(--error);
+  }
+
+  .result-count {
+    margin-left: .5rem;
+    font-weight: normal;
+    color: var(--muted);
+  }
+
+  output {
+    display: block;
+    margin-top: .5rem;
+    padding-left: 1rem;
+    border-left: 4px solid var(--anchor);
+    font-variant-numeric: tabular-nums;
+  }
+  output ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+</style>
+<noscript>
+  <style>#sid-form, #results { display: none; }</style>
+</noscript>
+</head>
+<body>
+<main>
+  <h1>Gen 3 <abbr title="Secret ID">SID</abbr> Finder</h1>
+  <p>Find possible SIDs for Generation III Pokémon games on Nintendo Switch using a <abbr title="Trainer ID">TID</abbr> and <abbr title="Generation VII Trainer ID">G7TID</abbr>.</p>
+
+  <details>
+    <summary>Where do I find these numbers?</summary>
+    <p>The 5-digit TID is shown in the original <abbr title="Game Boy Advance">GBA</abbr> game. The 6-digit G7TID is visible after transferring a Pokémon to a mainline title such as Pokémon Sword/Shield, Scarlet/Violet, or Legends: Z-A.</p>
+  </details>
+
+  <form id="sid-form" novalidate>
+    <label>
+      5-digit <abbr title="Trainer ID">TID</abbr>
+      <input id="tid" name="tid" type="text" inputmode="numeric"
+             pattern="[0-9]*" maxlength="5" autocomplete="off"
+             placeholder="e.g. 23787" required>
+    </label>
+
+    <label>
+      6-digit <abbr title="Generation VII Trainer ID">G7TID</abbr>
+      <input id="g7tid" name="g7tid" type="text" inputmode="numeric"
+             pattern="[0-9]*" maxlength="6" autocomplete="off"
+             placeholder="e.g. 017899" required>
+    </label>
+
+    <button type="submit">Find SID</button>
+
+    <p id="error" role="alert"></p>
+  </form>
+
+  <h2 id="results-heading" hidden>SID candidates<span id="result-count" class="result-count"></span></h2>
+  <output id="results" for="tid g7tid"></output>
+
+  <noscript>
+    <p><strong>JavaScript is required to calculate SID candidates.</strong></p>
+  </noscript>
+</main>
+
+<script>
+"use strict";
+
+const form = document.getElementById("sid-form");
+const tidInput = document.getElementById("tid");
+const g7tidInput = document.getElementById("g7tid");
+const errorEl = document.getElementById("error");
+const resultsEl = document.getElementById("results");
+const resultsHeading = document.getElementById("results-heading");
+const resultCountEl = document.getElementById("result-count");
+
+function gcd(a, b) {
+  while (b !== 0) {
+    const t = a % b;
+    a = b;
+    b = t;
+  }
+  return a;
+}
+
+function modInverse(a, m) {
+  // m is small (<= 1024 in practice); a bounded search is sufficient.
+  for (let x = 1; x < m; x += 1) {
+    if ((a * x) % m === 1) return x;
+  }
+  throw new Error("Modular inverse does not exist.");
+}
+
+// Chinese Remainder Theorem solve for the full 32-bit trainer ID,
+// then extract the high 16 bits as the SID.
+function sidCandidates(tid, g7tid) {
+  const modTid = 0x10000;
+  const modG7 = 1000000;
+
+  const g = gcd(modG7, modTid);
+  if ((tid - g7tid) % g !== 0) {
+    throw new Error("No matching SID found. Check your TID and G7TID.");
+  }
+
+  const lcm = (modG7 * modTid) / g;
+  const inv = modInverse(modG7 / g, modTid / g);
+  const t = (((tid - g7tid) / g) * inv) % (modTid / g);
+  const normalizedT = (t + modTid / g) % (modTid / g);
+  const n0 = (g7tid + modG7 * normalizedT) % lcm;
+
+  const candidates = [];
+  for (let n = n0; n < 2 ** 32; n += lcm) {
+    candidates.push(Math.floor(n / 65536));
+  }
+  return candidates;
+}
+
+function parseField(input, name, max) {
+  const raw = input.value.trim();
+  if (raw === "") return { error: name + " is required." };
+  if (!/^\d+$/.test(raw)) return { error: name + " must contain only digits." };
+  const value = Number(raw);
+  if (value > max) return { error: name + " must be at most " + max + "." };
+  return { value: value };
+}
+
+// Force both form fields to their canonical zero-padded display, matching
+// how the values appear in-game.
+function normalizeInputs(tid, g7tid) {
+  tidInput.value = String(tid).padStart(5, "0");
+  g7tidInput.value = String(g7tid).padStart(6, "0");
+}
+
+// Manual replacement for Element.replaceChildren() so we don't depend on
+// a DOM API from 2020.
+function replaceAll(el, nodes) {
+  while (el.firstChild) el.removeChild(el.firstChild);
+  for (let i = 0; i < nodes.length; i += 1) el.appendChild(nodes[i]);
+}
+
+function clearError() {
+  errorEl.textContent = "";
+  tidInput.removeAttribute("aria-invalid");
+  g7tidInput.removeAttribute("aria-invalid");
+}
+
+// Mark the offending field and surface the message. Does not move focus,
+// so callers can decide whether focus-stealing is appropriate. On submit
+// it is; on page load from a malformed URL it is not.
+function setError(message, input) {
+  errorEl.textContent = message;
+  if (input) input.setAttribute("aria-invalid", "true");
+}
+
+function focusFirstInvalid() {
+  if (tidInput.getAttribute("aria-invalid")) {
+    tidInput.focus();
+  } else if (g7tidInput.getAttribute("aria-invalid")) {
+    g7tidInput.focus();
+  }
+}
+
+function clearResults() {
+  replaceAll(resultsEl, []);
+  resultCountEl.textContent = "";
+  resultsHeading.hidden = true;
+}
+
+function clearUrl() {
+  const url = new URL(location.href);
+  url.search = "";
+  history.replaceState(null, "", url);
+}
+
+function updateUrl(tid, g7tid) {
+  const url = new URL(location.href);
+  const params = new URLSearchParams();
+  params.set("tid", String(tid).padStart(5, "0"));
+  params.set("g7tid", String(g7tid).padStart(6, "0"));
+  url.search = params.toString();
+  history.replaceState(null, "", url);
+}
+
+function renderResults(candidates) {
+  const list = document.createElement("ul");
+  for (let i = 0; i < candidates.length; i += 1) {
+    const li = document.createElement("li");
+    li.textContent = candidates[i];
+    list.appendChild(li);
+  }
+  // Unhide the heading before mutating the live region, so the output is
+  // visible to assistive tech at the moment its content changes.
+  resultsHeading.hidden = false;
+  resultCountEl.textContent = "(" + candidates.length + ")";
+  replaceAll(resultsEl, [list]);
+}
+
+// The URL and the form fields describe the *input*, not the outcome.
+// Once parsing succeeds, both are canonicalized regardless of whether the
+// pair happens to produce any SID candidates. Only a parse failure (which
+// leaves no coherent input to encode) clears the URL.
+function applyValidInputs(tid, g7tid) {
+  normalizeInputs(tid, g7tid);
+  updateUrl(tid, g7tid);
+}
+
+function handleSubmit() {
+  clearError();
+  clearResults();
+
+  const tid = parseField(tidInput, "TID", 65535);
+  if (tid.error) {
+    setError(tid.error, tidInput);
+    focusFirstInvalid();
+    clearUrl();
+    return;
+  }
+
+  const g7tid = parseField(g7tidInput, "G7TID", 999999);
+  if (g7tid.error) {
+    setError(g7tid.error, g7tidInput);
+    focusFirstInvalid();
+    clearUrl();
+    return;
+  }
+
+  applyValidInputs(tid.value, g7tid.value);
+
+  try {
+    renderResults(sidCandidates(tid.value, g7tid.value));
+  } catch (err) {
+    setError(err instanceof Error ? err.message : "Unable to compute SID candidates.");
+  }
+}
+
+function loadFromUrl() {
+  const params = new URLSearchParams(location.search);
+  const tidParam = params.get("tid");
+  const g7tidParam = params.get("g7tid");
+  if (tidParam === null || g7tidParam === null) return;
+
+  tidInput.value = tidParam;
+  g7tidInput.value = g7tidParam;
+
+  const tid = parseField(tidInput, "TID", 65535);
+  if (tid.error) { setError(tid.error, tidInput); return; }
+  const g7tid = parseField(g7tidInput, "G7TID", 999999);
+  if (g7tid.error) { setError(g7tid.error, g7tidInput); return; }
+
+  applyValidInputs(tid.value, g7tid.value);
+
+  try {
+    renderResults(sidCandidates(tid.value, g7tid.value));
+  } catch (err) {
+    setError(err instanceof Error ? err.message : "Unable to compute SID candidates.");
+  }
+}
+
+form.addEventListener("submit", function (event) {
+  event.preventDefault();
+  handleSubmit();
+});
+
+loadFromUrl();
+</script>
+</body>
+</html>
