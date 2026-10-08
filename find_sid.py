@@ -23,19 +23,17 @@ if sys.version_info < (3, 8):
     sys.exit("error: Python {}.{} is less than 3.8".format(*sys.version_info))
 
 import math
-import typing
 
 
-def sid_candidates(tid: int, g7tid: int) -> "typing.Iterator[int]":
+def sidtid_candidates(tid: int, g7tid: int) -> range:
     """
-    Yield all SID values consistent with the given TID and G7TID.
+    Return all u32 SIDTID values consistent with the given TID and G7TID.
 
-    The 32-bit ID N must satisfy:
-      - N ≡ g7tid (mod 10⁶)  [last 6 digits]
-      - N ≡ tid (mod 2¹⁶)    [low 16 bits]
+    The 32-bit SIDTID must satisfy:
+      - SIDTID ≡ g7tid (mod 10⁶)  [last 6 digits]
+      - SIDTID ≡ tid (mod 2¹⁶)    [low 16 bits]
 
     Using CRT with step size: lcm(10⁶, 2¹⁶) = 1,024,000,000
-    The SID is the upper 16 bits: SID = N >> 16
     """
     mod_tid = 0x10000
     mod_g7 = 1_000_000
@@ -52,10 +50,9 @@ def sid_candidates(tid: int, g7tid: int) -> "typing.Iterator[int]":
     lcm = mod_g7 * mod_tid // g
     inv = pow(mod_g7 // g, -1, mod_tid // g)
     t = ((tid - g7tid) // g * inv) % (mod_tid // g)
-    n0 = (g7tid + mod_g7 * t) % lcm
+    sidtid0 = (g7tid + mod_g7 * t) % lcm
 
-    for n in range(n0, 2**32, lcm):
-        yield n >> 16
+    return range(sidtid0, 2**32, lcm)
 
 
 if __name__ == "__main__":
@@ -65,7 +62,7 @@ if __name__ == "__main__":
         sys.exit("usage: python find_sid.py <tid> <g7tid>")
 
     try:
-        for sid in sid_candidates(tid=tid, g7tid=g7tid):
-            print(sid)
+        for sidtid in sidtid_candidates(tid=tid, g7tid=g7tid):
+            print(sidtid >> 16)
     except ValueError as e:
         sys.exit(f"error: {e}")
